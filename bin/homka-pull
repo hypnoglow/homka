@@ -1,0 +1,167 @@
+#!/bin/bash
+#
+# This script pulls changes from remote server to local repository.
+#
+# TODO:
+# - global feature: pull only changed files.
+#
+################################################################################
+
+. lib/std.sh
+. lib/io.sh
+. lib/git.sh
+
+main() {
+    if [ -z "$1" ] ; then
+        _error "Config file is not specified!"
+        exit 1
+    fi
+
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ] ; then
+        print_usage
+        exit 0
+    fi
+
+    _read_conf "$1"
+    check_variables_defined
+
+    pull_all
+
+    _info "Done!"
+}
+
+check_variables_defined() {
+    if [ -z "$remote_user" ] || [ -z "$remote_host" ] ; then
+        _error "Remote user and/or host are not specified!"
+        exit 1
+    fi
+}
+
+print_usage() {
+    cat <<EOF
+Usage:
+    $_CALLER pull <path..>
+
+<path..>            Path to your project's config.conf
+                    See \`example.conf\` for further details.
+
+$_SELF version $_VERSION
+EOF
+}
+
+pull_dir() {
+    local remote_dir=$1
+    local local_dir=$2
+    local is_git=$3
+    local remote_realpath=$( ssh "$remote_user@$remote_host" "readlink -f $remote_dir" )
+
+    _info "Pull $remote_host:$remote_dir to $local_dir"
+
+    cd $HOME
+    if [ ! -d "$local_dir" ] ; then
+        _error "Local directory $local_dir does not exist!"
+        exit 1
+    fi
+
+    cd $local_dir
+    _expect "Cannot change directory to $local_dir"
+
+    # If $local_dir is git repo - check that it is clean.
+    git rev-parse --git-dir &> /dev/null
+    if [ $? -eq 0 ] ; then
+        untracked_count=$( _git_get_untracked_count . )
+        index_status=$( _git_get_index_status . )
+
+        if [ $untracked_count -ne 0 ] || [ -n "$index_status" ] ; then
+            _warning "Local git repo is not clean! Cannot pull due to data losing risk."
+            _warning "Skip pull $remote_dir to $local_dir"
+            return 0
+        fi
+
+        unset untracked_count index_status
+    fi
+    cd ~-
+
+    # If remote_dir is git repo - pull only if changed.
+    # If git repo is clean - do not pull.
+    if [ $is_git = true ] ; then
+        _info "Check that remote $remote_realpath git repo is clean"
+
+        untracked_count=$( \
+            ssh "$remote_user@$remote_host" "$( typeset -f _git_get_untracked_count ) \
+            && cd $remote_realpath && _git_get_untracked_count . "\
+        )
+        _expect "$remote_dir is not in a git repo? Check your project config!"
+
+        if [ $untracked_count -gt 0 ] ; then
+            _info "Remote git untracked status: $untracked_count untracked files."
+        fi
+
+        index_status=$( \
+            ssh "$remote_user@$remote_host" "$( typeset -f _git_get_index_status ) \
+            && cd $remote_realpath && _git_get_index_status . "\
+        )
+        _expect "$remote_dir is not in a git repo? Check your project config!"
+
+        if [ -n "$index_status" ] ; then
+            _info "Remote git index status: $index_status"
+        fi
+
+        if [ $untracked_count -eq 0 ] && [ -z "$index_status" ] ; then
+            _warning "Remote git repo is clean! Nothing to pull?"
+            _warning "Skip pull $remote_host:$remote_dir to $local_dir"
+            return 0
+        fi
+    fi
+
+    curr_date=$( date '+%s' )
+    tmp_dir="/tmp/$curr_date"
+
+    _info "Create tmp dir $tmp_dir"
+    mkdir -p "$tmp_dir"
+    _expect "Cannot create tmp directory $tmp_dir"
+
+    _info "Copy files from $remote_host to $tmp_dir"
+    dir_name=$( dirname $remote_realpath )
+    base_name=$( basename $remote_realpath )
+    ssh "$remote_user@$remote_host" "tar -C $dir_name -zcf tmp/$base_name.tar.gz $base_name"
+    _expect "Cannot create tarball from files on remote host."
+
+    scp "$remote_user@$remote_host:tmp/$base_name.tar.gz" "$tmp_dir/"
+    _expect "Cannot copy files from remote host."
+
+    _info "Move files to $local_dir"
+    tar -xf "$tmp_dir/$base_name.tar.gz" -C $( dirname $local_dir )
+    #(cd "$tmp_dir" && tar c . ) | (cd "$local_dir" && tar xf - )
+    _expect "Cannot move files from $tmp_dir to $local_dir"
+
+    _info "Remove tmp dir $tmp_dir"
+    rm "$tmp_dir/$base_name.tar.gz"
+    _swear "Cannot remove tmp tarball $tmp_dir/$base_name.tar.gz"
+    rmdir "$tmp_dir"
+    _swear "Cannot remove tmp dir $tmp_dir"
+}
+
+pull_all() {
+    i=0
+    while true ; do
+        remote_dir="fetch_dir_remote_$i" && remote_dir=$( echo ${!remote_dir} )
+        local_dir="fetch_dir_local_$i" && local_dir=$( echo ${!local_dir} )
+        is_git="fetch_dir_git_$i" && is_git=$( echo ${!is_git} )
+        if [ -z "$is_git" ] ; then
+            is_git=false
+        fi
+
+        if [ -z "$remote_dir" ] || [ -z "$local_dir" ] ; then
+            break
+        fi
+
+        pull_dir $remote_dir $local_dir $is_git
+        _expect "Something went wrong when pulling $remote_dir to $local_dir - aborting."
+
+        i=$(( i + 1 ))
+    done
+}
+
+main "$@"
+exit 0

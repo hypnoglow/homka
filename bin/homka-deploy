@@ -1,0 +1,137 @@
+#!/bin/bash
+#
+# This is a simple deploy tool.
+################################################################################
+
+# Include libraries
+. lib/std.sh
+. lib/io.sh
+
+main() {
+    process_args "$@"
+    check_args
+
+    _read_conf "$config"
+    check_variables_defined
+
+    deliver
+    deploy
+}
+
+# Arguments handler.
+process_args() {
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            -h|--help)
+                print_usage
+                exit 0
+            ;;
+            -b|--build)
+                build="$2"
+                shift
+            ;;
+            -*)
+                _error "Unknown argument $param"
+                exit 1
+            ;;
+            *)
+                config=$1
+                break
+            ;;
+        esac
+        shift
+    done
+}
+
+# Ensures that all necessary variables are passed as arguments.
+check_args() {
+       if [ -z "$build" ] ; then
+        _error "Build is not specified."
+        exit 1
+    fi
+
+    if [ -z "$config" ] ; then
+        _error "Config file is not specified!"
+        exit 1
+    fi
+}
+
+# Ensures that all necessary variables are defined in config or as arguments.
+check_variables_defined() {
+    if [ -z "$builds_store" ] ; then
+        _error "builds_store is not defined."
+        exit 1
+    fi
+
+    if [ -z "$tag_prefix" ] || [ -z "$clean" ] ; then
+        exit 1
+    fi
+
+    if [ -z "$project" ] || [ -z "$repo" ] || [ -z "$includes" ] ; then
+        exit 1
+    fi
+
+    # Just to be sure 'clean' is either 'yes' or 'no'
+    if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
+        _error "Unknown 'clean' value: $clean"
+        exit 1
+    fi
+}
+
+print_usage() {
+    cat <<EOF
+Usage:
+    $_CALLER deploy -b <N> <path..>
+
+-b|--build          Build number, e.g. "-b 4"
+<path..>            Path to your project's config.conf
+                    See \`example.conf\` for further details.
+
+$_SELF version $_VERSION
+EOF
+}
+
+deliver() {
+    build_file="$project-$build.tar.gz"
+
+    if [ ! -e "$builds_store/$project/$build_file" ] ; then
+        _error "Build file $builds_store/$project/$build_file not found."
+        exit 1
+    fi
+
+    _info "Prepare host for build package uploading"
+    ssh "$remote_user@$remote_host" "mkdir -p ~/tmp ~/$project/releases/$build"
+    _expect "Cannot create ~/tmp & ~/$project/releases/$build directories on remote"
+
+    _info "Deliver package to $remote_host"
+    scp "$builds_store/$project/$build_file" "$remote_user@$remote_host:~/tmp/$build_file"
+    _expect "Cannot deliver package to $remote_host"
+
+    # Extract archive to releases directory and then remove tar file
+    _info "Extracting package tarball"
+    ssh "$remote_user@$remote_host" "tar -xf tmp/$build_file -C ~/$project/releases/$build ; rm tmp/$build_file"
+    _expect "Cannot extract package"
+
+    # Change a symlink to this build
+    _info "Creating symlink to last build..."
+    ssh "$remote_user@$remote_host" "ln -sfn $build ~/$project/releases/last"
+    _expect "Cannot create symlink to delivered build"
+}
+
+deploy() {
+    echo -n "Finish deploy? [y/n]: "
+    read answer
+    if [ "$answer" = "y" ] ; then
+        # Make sure hidden files are not expanded in wildcard
+        shopt -u dotglob
+
+        _info "Installing main symlink..."
+        ssh "$remote_user@$remote_host" "ln -sfn ~/$project/releases/$build/* ~/$project/"
+        _expect "Cannot install main symlink"
+
+        _info "Build $build has been deployed!"
+    fi
+}
+
+main "$@"
+exit 0

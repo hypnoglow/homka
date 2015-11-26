@@ -1,0 +1,155 @@
+#!/bin/bash
+#
+# This is a simple build tool.
+################################################################################
+
+# Include libraries
+. lib/std.sh
+. lib/io.sh
+
+main() {
+	process_args "$@"
+	check_args
+
+	_read_conf "$config"
+	check_variables_defined
+
+	tmp_dir="$tmp_dir/$_SELF"
+
+	prepare_repo
+	make_a_build
+	store_build
+}
+
+# Ensures that all necessary variables are passed as arguments.
+check_args() {
+	   if [ -z "$build" ] ; then
+		_error "Build is not specified."
+		exit 1
+	fi
+
+	if [ -z "$config" ] ; then
+	    _error "Config file is not specified!"
+	    exit 1
+	fi
+}
+
+# Ensures that all necessary variables are defined in config or as arguments.
+check_variables_defined() {
+    if [ -z "$tmp_dir" ] || [ -z "$builds_store" ] ; then
+    	_error "tmp_dir or/and builds_store are not defined."
+        exit 1
+    fi
+
+    if [ -z "$tag_prefix" ] || [ -z "$clean" ] ; then
+        exit 1
+    fi
+
+    if [ -z "$project" ] || [ -z "$repo" ] || [ -z "$includes" ] ; then
+        exit 1
+    fi
+
+	# Just to be sure 'clean' is either 'yes' or 'no'
+	if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
+		_error "Unknown 'clean' value: $clean"
+		exit 1
+	fi
+}
+
+# Arguments handler.
+process_args() {
+	while [[ $# > 0 ]] ; do
+		case $1 in
+			-h|--help)
+				print_usage
+				exit 0
+			;;
+			-c|--clean)
+				clean="yes"
+			;;
+			-b|--build)
+				build="$2"
+				shift
+			;;
+			-*)
+				_error "Unknown argument $param"
+				exit 1
+			;;
+			*)
+				config=$1
+				break
+			;;
+		esac
+		shift
+	done
+}
+
+print_usage() {
+    cat <<EOF
+Usage:
+    $_CALLER build -b <N> <path..>
+
+-b|--build          Build number, e.g. "-b 4"
+<path..>            Path to your project's config.conf
+                    See \`example.conf\` for further details.
+
+$_SELF version $_VERSION
+EOF
+}
+
+# Prepares repository for package building.
+# If clean repo is need, then this function does `git clone`.
+# Otherwise it just does `git pull`.
+prepare_repo() {
+	local repo_dir="$tmp_dir/repos/$project"
+	if [ "$clean" = "yes" ] || [ ! -e "$repo_dir" ] ; then
+		if [ -e "$repo_dir" ] ; then
+			rm -rf "$repo_dir"
+		fi
+
+		_info "Clone repo $repo to $repo_dir"
+		git clone -q "$repo" "$repo_dir"
+		_expect "Cannot clone repo $repo"
+
+		cd "$repo_dir"
+	else
+		cd "$repo_dir"
+		git checkout -q master
+
+		_info "Pull latest changes from $repo"
+		git pull -q
+	fi
+}
+
+# Checkout build tag in repository and make tarball fron necessary files.
+make_a_build() {
+	git checkout -q "$tag_prefix$build"
+	_expect "Cannot checkout build $build, tag $tag_prefix$build not found."
+
+	local repo_dir="$tmp_dir/repos/$project"
+	local builds_dir="$tmp_dir/builds/$project"
+	local build_file="$project-$build.tar.gz"
+
+	mkdir -p "$builds_dir"
+	_expect "Cannot create directory $builds_dir"
+
+	_info "Pack up stuff into $builds_dir/$build_file"
+	tar -C "$repo_dir" -zcf "$builds_dir/$build_file" $includes
+	_expect "Cannot create tarball."
+}
+
+store_build() {
+	local build_file="$project-$build.tar.gz"
+
+	# @todo remove sudo and check permissions properly?
+	sudo mkdir -p "$builds_store/$project"
+	sudo chown $USER "$builds_store/$project/"
+
+	mv "$tmp_dir/builds/$project/$build_file" "$builds_store/$project/"
+	_expect "Cannot move $build_file to $builds_store/$project"
+
+	_info "Build is ready: $builds_store/$project/$build_file"
+}
+
+main "$@"
+exit 0

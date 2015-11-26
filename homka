@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+# Homka is a toolbox that allows you to do some little
+# CI-magic for your simple website. See `README.md` for more details.
+#
+# Actually, this file is just a wrapper to other binaries
+# that represent different actions.
+################################################################################
+
+. lib/std.sh
+
+_SELF="Homka"
+_VERSION="0.1.0"
+
+##########
+
+print_usage() {
+    cat <<EOF
+Usage:
+    $_CALLER [action] [options]
+
+An action is one of the following:
+    build           Build package and place it to the store.
+    deploy          Deploy a prepared package to production.
+    mysql-dump      Dump MySQL database from production server.
+    pull            Pull code and/or static files (e.g. uploads) changes from
+                    production server.
+    help            Print this usage info.
+
+For available options and additional help on specific action see:
+    $_CALLER [action] --help
+
+$_SELF version $_VERSION
+EOF
+}
+
+if [ -z "$1" ] ; then
+    _error "Action does not specified."
+    print_usage
+    exit 1
+fi
+
+case $1 in
+    build|soberi)
+        action=build
+    ;;
+    deploy|vikati)
+        action=deploy
+    ;;
+
+    mysql-dump|bazu)
+        action=dump
+    ;;
+
+    pull|slei)
+        action=pull
+    ;;
+    help|pomogi)
+        print_usage
+        exit 0
+    ;;
+    *)
+        _error "Unknown action: $1"
+        print_usage
+        exit 1
+    ;;
+esac
+shift
+
+. "./bin/homka-$action" "$@"

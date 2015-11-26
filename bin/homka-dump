@@ -1,0 +1,146 @@
+#!/bin/bash
+#
+# Perform hot backup of remote MySQL database.
+################################################################################
+
+# Include libraries
+. lib/std.sh
+. lib/io.sh
+
+main() {
+    apply=false
+    config=""
+
+    process_args "$@"
+    check_args
+
+    _read_conf "$config"
+    check_variables_defined
+
+    dump
+
+    if $apply ; then
+        apply
+    fi
+
+    _info "Done!"
+}
+
+print_usage() {
+    cat <<EOF
+Usage:
+    $_CALLER mysql-dump <path..>
+
+<path..>            Path to your project's config.conf
+                    See \`example.conf\` for further details.
+
+$_SELF version $_VERSION
+EOF
+}
+
+# Arguments handler.
+process_args() {
+    while [[ $# > 0 ]] ; do
+        case $1 in
+            -h|--help)
+                print_usage
+                exit 0
+            ;;
+            -a|--apply)
+                apply=true
+            ;;
+            -*)
+                _error "Unknown argument $param"
+                exit 1
+            ;;
+            *)
+                config=$1
+                break
+            ;;
+        esac
+        shift
+    done
+}
+
+# Ensures that all necessary variables are passed as arguments.
+check_args() {
+    if [ -z "$config" ] ; then
+        _error "Config file is not specified!"
+        exit 1
+    fi
+}
+
+check_variables_defined() {
+    if [ -z "$remote_user" ] || [ -z "$remote_host" ] ; then
+        _error "Remote user and/or host are not specified!"
+        exit 1
+    fi
+
+    if [ -z "$mysql_user" ] || [ -z "$mysql_pass" ] || [ -z "$mysql_db" ] ; then
+        _error "MySQL user and/or password and/or db are not specified!"
+        exit 1
+    fi
+
+    if [ -z "$project" ] ; then
+        _error "Project name is not specified!"
+        exit 1
+    fi
+
+    if [ -z "$tmp_dir" ] ; then
+        _error "Remote and/or local directories are not specified!"
+        exit 1
+    fi
+
+    if [ -z "$mysql" ] ; then
+        mysql="mysql"
+    fi
+
+    if [ -z "$mysql_charset" ] ; then
+        mysql_charset="cp1251"
+    fi
+}
+
+dump() {
+    curr_date=$( date '+%Y-%m-%d_%H-%M-%S' )
+    remote_tmp_dir="tmp/$project/mysql_dumps/$curr_date/"
+    tarball_name="${project}_mysql-dump_${curr_date}.tar.gz"
+
+    _info "Execute commands on $remote_host:"
+    ssh "$remote_user@$remote_host" /usr/bin/env bash << EOF
+        echo "... Create tmp dir"
+        mkdir -p "$remote_tmp_dir"
+        [ $? -ne 0 ] && return 1
+        cd "$remote_tmp_dir"
+
+        echo "... Dump database \"$mysql_db\""
+        mysqldump -u "$mysql_user" -p"$mysql_pass" "$mysql_db" --default-character-set="$mysql_charset" > "$mysql_db".sql
+
+        echo "... Create tarball $tarball_name"
+        tar -czf "$tarball_name" *
+EOF
+    _expect "Something went wrong when dumping database. Aborting."
+
+    _info "... Copy tarball from remote $host"
+    scp "$remote_user@$remote_host:$remote_tmp_dir/$tarball_name" "$tmp_dir"
+    _expect "Cannot copy tarball with dump from remote."
+
+    _info "MySQL dump tarball: $tmp_dir/$tarball_name"
+
+    _info "Remove dump files from remote"
+    ssh "$remote_user@$remote_host" /usr/bin/env bash << EOF
+        rm -rf "$remote_tmp_dir"
+EOF
+    _swear "Remote tmp dir is not deleted."
+}
+
+apply() {
+    _info "Apply MySQL dump to local database"
+    tar -xzf "$tmp_dir/$tarball_name" -C "$tmp_dir"
+    _expect "Cannot extract dump tarball"
+
+    "$mysql" --user="$mysql_user" --password="$mysql_pass" --database="$mysql_db" < "$tmp_dir/$mysql_db".sql
+    _expect "Cannot apply dump"
+}
+
+main "$@"
+exit 0
