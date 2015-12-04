@@ -7,9 +7,12 @@
 #
 ################################################################################
 
-. lib/std.sh
-. lib/io.sh
-. lib/git.sh
+_SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
+
+# Include libraries
+. ${_SELF_HOME}/lib/std.sh
+. ${_SELF_HOME}/lib/io.sh
+. ${_SELF_HOME}/lib/git.sh
 
 main() {
     if [ -z "$1" ] ; then

@@ -3,9 +3,11 @@
 # Perform hot backup of remote MySQL database.
 ################################################################################
 
+_SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
+
 # Include libraries
-. lib/std.sh
-. lib/io.sh
+. ${_SELF_HOME}/lib/std.sh
+. ${_SELF_HOME}/lib/io.sh
 
 main() {
     apply=false

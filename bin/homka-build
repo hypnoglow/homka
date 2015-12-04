@@ -3,9 +3,11 @@
 # This is a simple build tool.
 ################################################################################
 
+_SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
+
 # Include libraries
-. lib/std.sh
-. lib/io.sh
+. ${_SELF_HOME}/lib/std.sh
+. ${_SELF_HOME}/lib/io.sh
 
 main() {
     process_args "$@"
@@ -17,6 +19,7 @@ main() {
     tmp_dir="$tmp_dir/$_SELF"
 
     prepare_repo
+    exec_pre_command
     make_a_build
     store_build
 }
@@ -119,6 +122,17 @@ prepare_repo() {
         _info "Pull latest changes from $repo"
         git pull -q
     fi
+}
+
+exec_pre_command() {
+    [ -z "$pre_command" ] && return 0
+
+    local repo_dir="$tmp_dir/repos/$project"
+
+    _info "Running pre-command '$pre_command'"
+    cd "$repo_dir"
+    ${pre_command}
+    _expect "Cannot execute pre command '$pre_command'"
 }
 
 # Checkout build tag in repository and make tarball fron necessary files.

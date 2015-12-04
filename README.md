@@ -4,11 +4,11 @@ This is a toolbox that allows you to do some little [CI](https://en.wikipedia.or
 
 ## Use case
 
-For example, Homka is useful in the management of backend processes of 
-your wordpress blog. :monkey_face:  
+For example, Homka is useful in the management of backend processes of
+your wordpress blog. :monkey_face:
 
 Deploy a website on your local machine. Do some coding.
-Then use this toolbox to build and deploy your new code to the server. 
+Then use this toolbox to build and deploy your new code to the server.
 Homka takes upon oneself some routines like
 "dump actual MySQL data from server" or "pull fresh image uploads".
 
@@ -30,3 +30,7 @@ Get help:
 
     ./homka help
     ./homka [action] --help
+
+## TODO
+
+- Rollback action
