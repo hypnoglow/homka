@@ -115,7 +115,8 @@ dump() {
         cd "$remote_tmp_dir"
 
         echo "... Dump database \"$mysql_db\""
-        mysqldump -u "$mysql_user" -p"$mysql_pass" "$mysql_db" --default-character-set="$mysql_charset" > "$mysql_db".sql
+        mysqldump -u "$mysql_user" -p"$mysql_pass" "$mysql_db" \
+        --default-character-set="$mysql_charset" > "$mysql_db".sql
 
         echo "... Create tarball $tarball_name"
         tar -czf "$tarball_name" *
@@ -140,7 +141,8 @@ apply() {
     tar -xzf "$tmp_dir/$tarball_name" -C "$tmp_dir"
     _expect "Cannot extract dump tarball"
 
-    "$mysql" --user="$mysql_user" --password="$mysql_pass" --database="$mysql_db" < "$tmp_dir/$mysql_db".sql
+    "$mysql" --user="$mysql_user" --password="$mysql_pass" \
+    --database="$mysql_db" < "$tmp_dir/$mysql_db".sql
     _expect "Cannot apply dump"
 }
 

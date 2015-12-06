@@ -124,12 +124,32 @@ deploy() {
     echo -n "Finish deploy? [y/n]: "
     read answer
     if [ "$answer" = "y" ] ; then
-        # Make sure hidden files are not expanded in wildcard
-        shopt -u dotglob
+        _info "Installing main symlinks..."
+        ssh "$remote_user@$remote_host" /usr/bin/env bash <<- HERE
+            # Make sure hidden files are not expanded in wildcard
+            shopt -u dotglob
 
-        _info "Installing main symlink..."
-        ssh "$remote_user@$remote_host" "ln -sfn ~/$project/releases/$build/* ~/$project/"
-        _expect "Cannot install main symlink"
+            for filepath in ~/$project/releases/$build/* ; do
+                filename=\$( basename \$filepath )
+
+                # If destination file is a normal file or directory - backup it.
+                if [ -e ~/$project/\$filename ] && [ ! -L ~/$project/\$filename ] ; then
+                    mv ~/$project/\$filename ~/$project/\$filename~
+                    if [ $? -ne 0 ] ; then
+                        echo "Cannot backup ~/$project/\$filename" >&2
+                        exit 1
+                    fi
+                fi
+
+                ln -sfn ~/$project/releases/$build/* ~/$project/
+                if [ $? -ne 0 ] ; then
+                    echo "Cannot set symlink ~/$project/\$filename -> \$filepath" >&2
+                    exit 1
+                fi
+            done
+HERE
+
+        _expect "Cannot install main symlinks"
 
         _info "Build $build has been deployed!"
     fi
