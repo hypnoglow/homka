@@ -8,13 +8,27 @@
 [ -z "$_AUTHOR" ]  && declare -g _AUTHOR="John Doe"
 [ -z "$_CALLER" ]  && declare -g _CALLER="$0"
 
-# Note that all colors are bold
-declare -g _COLOR_RED="\033[01;31m"
-declare -g _COLOR_GREEN="\033[01;32m"
+# 16 Colors palette
+# Reminder:
+#     0 - normal
+#     1 - bold
+#     4 - underscore
+declare -g _COLOR_BLACK="\033[00;30m"
+declare -g _COLOR_RED="\033[00;31m"
+declare -g _COLOR_GREEN="\033[00;32m"
+declare -g _COLOR_BROWN="\033[00;33m"
+declare -g _COLOR_BLUE="\033[00;34m"
+declare -g _COLOR_PURPLE="\033[00;35m"
+declare -g _COLOR_CYAN="\033[00;36m"
+declare -g _COLOR_LIGHT_GRAY="\033[00;37m"
+declare -g _COLOR_DARK_GRAY="\033[01;30m"
+declare -g _COLOR_LIGHT_RED="\033[01;31m"
+declare -g _COLOR_LIGHT_GREEN="\033[01;32m"
 declare -g _COLOR_YELLOW="\033[01;33m"
-declare -g _COLOR_BLUE="\033[01;34m"
-declare -g _COLOR_PURPLE="\033[01;35m"
-declare -g _COLOR_CYAN="\033[01;36m"
+declare -g _COLOR_LIGHT_BLUE="\033[01;34m"
+declare -g _COLOR_LIGHT_PURPLE="\033[01;35m"
+declare -g _COLOR_LIGHT_CYAN="\033[01;36m"
+declare -g _COLOR_WHITE="\033[01;37m"
 declare -g _COLOR_RESET="\033[0m"
 
 ### LOGGING FUNCTIONS ###
