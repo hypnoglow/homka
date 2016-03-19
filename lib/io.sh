@@ -23,6 +23,9 @@ io::read_conf() {
 
     while IFS='= ' read lhs rhs
     do
+        # If variable is already defined, skip it
+        [ -n "${!lhs}" ] && continue
+
         if [[ ! $lhs =~ ^\ *# && -n $lhs ]]; then
             rhs="${rhs%%\#*}"    # Del in line right comments
             rhs="${rhs%%*( )}"   # Del trailing spaces
