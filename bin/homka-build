@@ -11,6 +11,7 @@ declare -i _ERROR_VARIABLE_BAD_VALUE=65
 # Include libraries
 . ${_SELF_HOME}/lib/std.sh
 . ${_SELF_HOME}/lib/io.sh
+. ${_SELF_HOME}/lib/str.sh
 
 main() {
     declare -g build=""
@@ -34,8 +35,8 @@ main() {
 
 # Ensures that all necessary variables are passed as arguments.
 check_args() {
-    if [ -z "${build}" ] && [ -z "${branch}" ]; then
-        _error "Build/branch is not specified."
+    if [ -z "${build}" ]; then
+        _error "Build is not specified."
         exit 1
     fi
 
@@ -128,7 +129,6 @@ EOF
 # Otherwise it just does `git pull`.
 prepare_repo() {
     local repo_dir="${tmp_dir}/repos/${project}"
-    echo $clean
     if [ "$clean" = "yes" ] || [ ! -e "$repo_dir" ] ; then
         if [ -e "$repo_dir" ] ; then
             rm -rf "$repo_dir"
@@ -162,10 +162,10 @@ exec_pre_command() {
 
 # Checkout build tag in repository and make tarball fron necessary files.
 make_a_build() {
-    local ref
-    if [ -n "${build}" ]; then
-        ref="${tag_prefix}${build}"
-    else
+    declare -g build_tag="${tag_prefix}${build}"
+    local ref="${build_tag}"
+
+    if [ -n "${branch}" ]; then
         ref="${branch}"
     fi
 
@@ -174,7 +174,7 @@ make_a_build() {
 
     local repo_dir="${tmp_dir}/repos/${project}"
     local builds_tmp_dir="${tmp_dir}/builds/${project}"
-    declare -g build_file="${project}@${ref}.tar.gz"
+    declare -g build_file="${project}@${build_tag}.tar.gz"
 
     mkdir -p "${builds_tmp_dir}"
     _expect "Cannot create directory ${builds_tmp_dir}"
@@ -190,6 +190,17 @@ store_build() {
 
     mv "${tmp_dir}/builds/${project}/${build_file}" "${builds_store}/${project}/"
     _expect "Cannot move ${build_file} to ${builds_store}/${project}"
+
+    if [ -n "${branch}" ]; then
+        _info "Set build tag \"${build_tag}\" in repo ${repo}"
+        if git tag -l | egrep -q "^$(str::ere_quote "${build_tag}")$"; then
+            git tag -d "${build_tag}"
+            git push -q --delete origin "${build_tag}"
+        fi
+
+        git tag "${build_tag}"
+        git push origin "${build_tag}"
+    fi
 
     _info "Build is ready: ${builds_store}/${project}/${build_file}"
 }
