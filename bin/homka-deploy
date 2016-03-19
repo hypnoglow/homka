@@ -13,7 +13,7 @@ main() {
     process_args "$@"
     check_args
 
-    _read_conf "$config"
+    io::read_conf "$config"
     check_variables_defined
 
     deliver

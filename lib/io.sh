@@ -13,10 +13,11 @@
 #
 # Usage:
 #     . lib/io.sh
-#     _read_conf "my_config.conf"
+#     io::read_conf "my_config.conf"
 #     echo "$name" # outputs "John"
 #
-_read_conf() {
+io::read_conf() {
+    # TODO: save current value of extglob and restore it afterwards
     shopt -s extglob
     configfile=$1
 
@@ -34,4 +35,3 @@ _read_conf() {
         fi
     done < $configfile
 }
-

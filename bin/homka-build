@@ -5,18 +5,26 @@
 
 _SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
 
+declare -i _ERROR_VARIABLE_NOT_DEFINED=64
+declare -i _ERROR_VARIABLE_BAD_VALUE=65
+
 # Include libraries
 . ${_SELF_HOME}/lib/std.sh
 . ${_SELF_HOME}/lib/io.sh
 
 main() {
+    declare -g build=""
+    declare -g branch=""
+
     process_args "$@"
     check_args
 
-    _read_conf "$config"
+    io::read_conf "$config"
     check_variables_defined
 
-    tmp_dir="$tmp_dir/$_SELF"
+    if [[ "${tmp_dir}" =~ ^/tmp.?$ ]]; then
+        tmp_dir="${tmp_dir}/${_SELF}"
+    fi
 
     prepare_repo
     exec_pre_command
@@ -26,12 +34,12 @@ main() {
 
 # Ensures that all necessary variables are passed as arguments.
 check_args() {
-       if [ -z "$build" ] ; then
-        _error "Build is not specified."
+    if [ -z "${build}" ] && [ -z "${branch}" ]; then
+        _error "Build/branch is not specified."
         exit 1
     fi
 
-    if [ -z "$config" ] ; then
+    if [ -z "${config}" ] ; then
         _error "Config file is not specified!"
         exit 1
     fi
@@ -39,23 +47,33 @@ check_args() {
 
 # Ensures that all necessary variables are defined in config or as arguments.
 check_variables_defined() {
-    if [ -z "$tmp_dir" ] || [ -z "$builds_store" ] ; then
-        _error "tmp_dir or/and builds_store are not defined."
-        exit 1
-    fi
+    local variables=(
+        tmp_dir
+        builds_store
+        tag_prefix
+        clean
+        project
+        repo
+        includes
+    )
+    local variables
+    local error=false
 
-    if [ -z "$tag_prefix" ] || [ -z "$clean" ] ; then
-        exit 1
-    fi
+    for variable in ${variables[@]}; do
+        if [ -z "${!variable}" ]; then
+            error=true
+            _error "${variable} is not defined."
+        fi
+    done
 
-    if [ -z "$project" ] || [ -z "$repo" ] || [ -z "$includes" ] ; then
-        exit 1
+    if $error; then
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
     fi
 
     # Just to be sure 'clean' is either 'yes' or 'no'
     if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
         _error "Unknown 'clean' value: $clean"
-        exit 1
+        exit ${_ERROR_VARIABLE_BAD_VALUE}
     fi
 }
 
@@ -70,8 +88,12 @@ process_args() {
             -c|--clean)
                 clean="yes"
             ;;
-            -b|--build)
+            -n|--build-number)
                 build="$2"
+                shift
+            ;;
+            -b|--branch)
+                branch="$2"
                 shift
             ;;
             -*)
@@ -92,9 +114,10 @@ print_usage() {
 Usage:
     $_CALLER build -b <N> <path..>
 
--b|--build          Build number, e.g. "-b 4"
+-n|--build-number   Build number, e.g. "-n 104"
+-b|--branch         Branch name, e.g. "feature-new-button"
 <path..>            Path to your project's config.conf
-                    See \`example.conf\` for further details.
+                    See \`template.conf\` for further details.
 
 $_SELF version $_VERSION
 EOF
@@ -104,7 +127,8 @@ EOF
 # If clean repo is need, then this function does `git clone`.
 # Otherwise it just does `git pull`.
 prepare_repo() {
-    local repo_dir="$tmp_dir/repos/$project"
+    local repo_dir="${tmp_dir}/repos/${project}"
+    echo $clean
     if [ "$clean" = "yes" ] || [ ! -e "$repo_dir" ] ; then
         if [ -e "$repo_dir" ] ; then
             rm -rf "$repo_dir"
@@ -127,42 +151,47 @@ prepare_repo() {
 exec_pre_command() {
     [ -z "$pre_command" ] && return 0
 
-    local repo_dir="$tmp_dir/repos/$project"
+    local repo_dir="${tmp_dir}/repos/${project}"
 
-    _info "Running pre-command '$pre_command'"
+    _info "Running pre-build command '$pre_command'"
     cd "$repo_dir"
     ${pre_command}
-    _expect "Cannot execute pre command '$pre_command'"
+
+    _expect "Pre-build command '$pre_command' failed."
 }
 
 # Checkout build tag in repository and make tarball fron necessary files.
 make_a_build() {
-    git checkout -q "$tag_prefix$build"
-    _expect "Cannot checkout build $build, tag $tag_prefix$build not found."
+    local ref
+    if [ -n "${build}" ]; then
+        ref="${tag_prefix}${build}"
+    else
+        ref="${branch}"
+    fi
 
-    local repo_dir="$tmp_dir/repos/$project"
-    local builds_dir="$tmp_dir/builds/$project"
-    local build_file="$project-$build.tar.gz"
+    git checkout -q "${ref}"
+    _expect "Cannot checkout ${ref}: pathspec not found."
 
-    mkdir -p "$builds_dir"
-    _expect "Cannot create directory $builds_dir"
+    local repo_dir="${tmp_dir}/repos/${project}"
+    local builds_tmp_dir="${tmp_dir}/builds/${project}"
+    declare -g build_file="${project}@${ref}.tar.gz"
 
-    _info "Pack up stuff into $builds_dir/$build_file"
-    tar -C "$repo_dir" -zcf "$builds_dir/$build_file" $includes
+    mkdir -p "${builds_tmp_dir}"
+    _expect "Cannot create directory ${builds_tmp_dir}"
+
+    _info "Pack up stuff into ${builds_tmp_dir}/${build_file}"
+    tar -C "$repo_dir" -zcf "${builds_tmp_dir}/${build_file}" $includes
     _expect "Cannot create tarball."
 }
 
 store_build() {
-    local build_file="$project-$build.tar.gz"
+    # TODO: check permissions
+    mkdir -p "${builds_store}/${project}"
 
-    # @todo remove sudo and check permissions properly?
-    sudo mkdir -p "$builds_store/$project"
-    sudo chown $USER "$builds_store/$project/"
+    mv "${tmp_dir}/builds/${project}/${build_file}" "${builds_store}/${project}/"
+    _expect "Cannot move ${build_file} to ${builds_store}/${project}"
 
-    mv "$tmp_dir/builds/$project/$build_file" "$builds_store/$project/"
-    _expect "Cannot move $build_file to $builds_store/$project"
-
-    _info "Build is ready: $builds_store/$project/$build_file"
+    _info "Build is ready: ${builds_store}/${project}/${build_file}"
 }
 
 main "$@"

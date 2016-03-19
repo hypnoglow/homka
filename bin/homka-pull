@@ -25,7 +25,7 @@ main() {
         exit 0
     fi
 
-    _read_conf "$1"
+    io::read_conf "$1"
     check_variables_defined
 
     pull_all
