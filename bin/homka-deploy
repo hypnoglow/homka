@@ -3,17 +3,19 @@
 # This is a simple deploy tool.
 ################################################################################
 
-_SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
-
 # Include libraries
 . ${_SELF_HOME}/lib/std.sh
 . ${_SELF_HOME}/lib/io.sh
+. ${_SELF_HOME}/lib/errors.sh
 
 main() {
+    declare -g build=""
+    declare -g force=false
+
     process_args "$@"
     check_args
 
-    io::read_conf "$config"
+    io::read_conf "${config}"
     check_variables_defined
 
     deliver
@@ -28,13 +30,17 @@ process_args() {
                 print_usage
                 exit 0
             ;;
-            -b|--build)
+            -n|--build-number)
                 build="$2"
                 shift
             ;;
+            -f|--force)
+                force=true
+            ;;
             -*)
                 _error "Unknown argument $param"
-                exit 1
+                print_usage
+                exit ${_ERROR_UNKNOWN_ARGUMENT}
             ;;
             *)
                 config=$1
@@ -47,36 +53,41 @@ process_args() {
 
 # Ensures that all necessary variables are passed as arguments.
 check_args() {
-       if [ -z "$build" ] ; then
+       if [ -z "${build}" ] ; then
         _error "Build is not specified."
-        exit 1
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
     fi
 
-    if [ -z "$config" ] ; then
+    if [ -z "${config}" ] ; then
         _error "Config file is not specified!"
-        exit 1
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
     fi
 }
 
 # Ensures that all necessary variables are defined in config or as arguments.
 check_variables_defined() {
-    if [ -z "$builds_store" ] ; then
-        _error "builds_store is not defined."
-        exit 1
-    fi
+    local variables=(
+        builds_store
+        project
+        tag_prefix
+        remote_user
+        remote_host
+    )
+    local variable
+    local error=false
 
-    if [ -z "$tag_prefix" ] || [ -z "$clean" ] ; then
-        exit 1
-    fi
+    for variable in ${variables[@]}; do
+        if [ -z "${!variable}" ]; then
+            error=true
+            _error "${variable} is not defined."
+        fi
+    done
 
-    if [ -z "$project" ] || [ -z "$repo" ] || [ -z "$includes" ] ; then
-        exit 1
-    fi
-
-    # Just to be sure 'clean' is either 'yes' or 'no'
-    if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
-        _error "Unknown 'clean' value: $clean"
-        exit 1
+    if $error; then
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
     fi
 }
 
@@ -85,74 +96,83 @@ print_usage() {
 Usage:
     $_CALLER deploy -b <N> <path..>
 
--b|--build          Build number, e.g. "-b 4"
+-n|--build-number   Build number, e.g. "-b 4"
 <path..>            Path to your project's config.conf
-                    See \`example.conf\` for further details.
+                    See \`template.conf\` for further details.
 
 $_SELF version $_VERSION
 EOF
 }
 
 deliver() {
-    build_file="$project-$build.tar.gz"
+    declare -g build_tag="${tag_prefix}${build}"
+    declare -g build_file="${project}@${build_tag}.tar.gz"
+    local build_file_path="${builds_store}/${project}/${build_file}"
 
-    if [ ! -e "$builds_store/$project/$build_file" ] ; then
-        _error "Build file $builds_store/$project/$build_file not found."
-        exit 1
+    if [ ! -e "${build_file_path}" ] ; then
+        _error "Build file ${build_file_path} not found."
+        exit 67 #TODO
     fi
 
     _info "Prepare host for build package uploading"
-    ssh "$remote_user@$remote_host" "mkdir -p ~/tmp ~/$project/releases/$build"
-    _expect "Cannot create ~/tmp & ~/$project/releases/$build directories on remote"
+    ssh "${remote_user}@${remote_host}" "mkdir -p ~/tmp ~/${project}/releases/${build}"
+    _expect "Cannot create ~/tmp & ~/${project}/releases/${build} directories on remote"
 
-    _info "Deliver package to $remote_host"
-    scp "$builds_store/$project/$build_file" "$remote_user@$remote_host:~/tmp/$build_file"
-    _expect "Cannot deliver package to $remote_host"
+    _info "Deliver package to ${remote_host}"
+    scp "${builds_store}/${project}/${build_file}" "${remote_user}@${remote_host}:~/tmp/${build_file}"
+    _expect "Cannot deliver package to ${remote_host}"
 
     # Extract archive to releases directory and then remove tar file
     _info "Extracting package tarball"
-    ssh "$remote_user@$remote_host" "tar -xf tmp/$build_file -C ~/$project/releases/$build ; rm tmp/$build_file"
+    ssh "${remote_user}@${remote_host}" "tar -xzf tmp/${build_file} -C ~/${project}/releases/${build} ; rm tmp/${build_file}"
     _expect "Cannot extract package"
 
     # Change a symlink to this build
     _info "Creating symlink to last build..."
-    ssh "$remote_user@$remote_host" "ln -sfn $build ~/$project/releases/last"
+    ssh "${remote_user}@${remote_host}" "ln -sfn ${build} ~/${project}/releases/last"
     _expect "Cannot create symlink to delivered build"
 }
 
 deploy() {
-    echo -n "Finish deploy? [y/n]: "
-    read answer
-    if [ "$answer" = "y" ] ; then
-        _info "Installing main symlinks..."
-        ssh "$remote_user@$remote_host" /usr/bin/env bash <<- HERE
-            # Make sure hidden files are not expanded in wildcard
-            shopt -u dotglob
+    if ! ${force}; then
+        echo -n "Finish deploy? [y/n]: "
+        read answer
+        if [ "$answer" != "y" ] ; then
+            exit 0
+        fi
+    fi
 
-            for filepath in ~/$project/releases/$build/* ; do
-                filename=\$( basename \$filepath )
+    echo "deploy"
+    exit 0
 
-                # If destination file is a normal file or directory - backup it.
-                if [ -e ~/$project/\$filename ] && [ ! -L ~/$project/\$filename ] ; then
-                    mv ~/$project/\$filename ~/$project/\$filename~
-                    if [ $? -ne 0 ] ; then
-                        echo "Cannot backup ~/$project/\$filename" >&2
-                        exit 1
-                    fi
-                fi
+    _info "Installing main symlinks..."
+    ssh "${remote_user}@${remote_host}" /usr/bin/env bash <<- HERE
+        # Make sure hidden files are not expanded in wildcard
+        shopt -u dotglob
 
-                ln -sfn ~/$project/releases/$build/* ~/$project/
+        for filepath in ~/${project}/releases/${build}/* ; do
+            filename=\$( basename \$filepath )
+
+            # If destination file is a normal file or directory - backup it.
+            if [ -e ~/${project}/\$filename ] && [ ! -L ~/${project}/\$filename ] ; then
+                mv ~/${project}/\$filename ~/${project}/\$filename~
                 if [ $? -ne 0 ] ; then
-                    echo "Cannot set symlink ~/$project/\$filename -> \$filepath" >&2
+                    echo "Cannot backup ~/${project}/\$filename" >&2
                     exit 1
                 fi
-            done
+            fi
+
+            ln -sfn ~/${project}/releases/${build}/* ~/${project}/
+            if [ $? -ne 0 ] ; then
+                echo "Cannot set symlink ~/${project}/\$filename -> \$filepath" >&2
+                exit 1
+            fi
+        done
 HERE
 
-        _expect "Cannot install main symlinks"
+    _expect "Cannot install main symlinks"
 
-        _info "Build $build has been deployed!"
-    fi
+    _info "Build ${build} has been deployed!"
 }
 
 main "$@"

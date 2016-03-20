@@ -7,10 +7,11 @@
 # that represent different actions.
 ################################################################################
 
-. lib/std.sh
-
 _SELF="Homka"
+_SELF_HOME=$( dirname $( readlink -e "${BASH_SOURCE[0]}" ) )
 _VERSION="0.1.0"
+
+. "${_SELF_HOME}/lib/std.sh"
 
 ##########
 
@@ -67,4 +68,4 @@ case $1 in
 esac
 shift
 
-. "./bin/homka-$action" "$@"
+. "${_SELF_HOME}/bin/homka-$action" "$@"

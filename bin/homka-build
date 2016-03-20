@@ -3,15 +3,11 @@
 # This is a simple build tool.
 ################################################################################
 
-_SELF_HOME=$( dirname $( dirname $( readlink -e "${BASH_SOURCE[0]}" ) ) )
-
-declare -i _ERROR_VARIABLE_NOT_DEFINED=64
-declare -i _ERROR_VARIABLE_BAD_VALUE=65
-
 # Include libraries
 . ${_SELF_HOME}/lib/std.sh
 . ${_SELF_HOME}/lib/io.sh
 . ${_SELF_HOME}/lib/str.sh
+. ${_SELF_HOME}/lib/errors.sh
 
 main() {
     declare -g build=""
@@ -31,51 +27,6 @@ main() {
     exec_pre_command
     make_a_build
     store_build
-}
-
-# Ensures that all necessary variables are passed as arguments.
-check_args() {
-    if [ -z "${build}" ]; then
-        _error "Build is not specified."
-        exit 1
-    fi
-
-    if [ -z "${config}" ] ; then
-        _error "Config file is not specified!"
-        exit 1
-    fi
-}
-
-# Ensures that all necessary variables are defined in config or as arguments.
-check_variables_defined() {
-    local variables=(
-        tmp_dir
-        builds_store
-        tag_prefix
-        clean
-        project
-        repo
-        includes
-    )
-    local variables
-    local error=false
-
-    for variable in ${variables[@]}; do
-        if [ -z "${!variable}" ]; then
-            error=true
-            _error "${variable} is not defined."
-        fi
-    done
-
-    if $error; then
-        exit ${_ERROR_VARIABLE_NOT_DEFINED}
-    fi
-
-    # Just to be sure 'clean' is either 'yes' or 'no'
-    if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
-        _error "Unknown 'clean' value: $clean"
-        exit ${_ERROR_VARIABLE_BAD_VALUE}
-    fi
 }
 
 # Arguments handler.
@@ -99,7 +50,8 @@ process_args() {
             ;;
             -*)
                 _error "Unknown argument $param"
-                exit 1
+                print_usage
+                exit ${_ERROR_UNKNOWN_ARGUMENT}
             ;;
             *)
                 config=$1
@@ -108,6 +60,54 @@ process_args() {
         esac
         shift
     done
+}
+
+# Ensures that all necessary variables are passed as arguments.
+check_args() {
+    if [ -z "${build}" ]; then
+        _error "Build is not specified."
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
+    fi
+
+    if [ -z "${config}" ] ; then
+        _error "Config file is not specified!"
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
+    fi
+}
+
+# Ensures that all necessary variables are defined in config or as arguments.
+check_variables_defined() {
+    local variables=(
+        tmp_dir
+        builds_store
+        tag_prefix
+        clean
+        project
+        repo
+        includes
+    )
+    local variable
+    local error=false
+
+    for variable in ${variables[@]}; do
+        if [ -z "${!variable}" ]; then
+            error=true
+            _error "${variable} is not defined."
+        fi
+    done
+
+    if $error; then
+        print_usage
+        exit ${_ERROR_VARIABLE_NOT_DEFINED}
+    fi
+
+    # Just to be sure 'clean' is either 'yes' or 'no'
+    if [ "$clean" != "yes" ] && [ "$clean" != "no" ] ; then
+        _error "Unknown 'clean' value: $clean"
+        exit ${_ERROR_VARIABLE_BAD_VALUE}
+    fi
 }
 
 print_usage() {
