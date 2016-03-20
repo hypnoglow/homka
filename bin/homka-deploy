@@ -142,9 +142,6 @@ deploy() {
         fi
     fi
 
-    echo "deploy"
-    exit 0
-
     _info "Installing main symlinks..."
     ssh "${remote_user}@${remote_host}" /usr/bin/env bash <<- HERE
         # Make sure hidden files are not expanded in wildcard
